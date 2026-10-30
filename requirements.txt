@@ -1,0 +1,9 @@
+torch>=2.1
+transformers>=4.40
+datasets>=2.18
+accelerate>=0.30      # required by the Hugging Face Trainer
+numpy
+pandas                # for error analysis tables
+matplotlib            # for plots in the report
+spacy                 # for answer-type analysis (optional, Phase 6)
+tqdm
