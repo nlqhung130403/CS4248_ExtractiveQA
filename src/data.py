@@ -68,6 +68,15 @@ def load_split(path):
     return to_dataset(flatten(load_squad(path)))
 
 
+def load_official_eval():
+    """Import evaluate-v2.0.py (its name is not a valid module name) to reuse its normalisation and metrics."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("official_eval", config.ROOT / "evaluate-v2.0.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def answer_mismatches(rows):
     """Rows where some answer text is not at its answer_start in the context."""
     bad = []
