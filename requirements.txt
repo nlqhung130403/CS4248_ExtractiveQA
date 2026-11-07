@@ -1,5 +1,5 @@
 torch>=2.1
-transformers>=4.40
+transformers>=4.46    # processing_class in Trainer; eval_strategy in TrainingArguments
 datasets>=2.18
 huggingface_hub<2.0   # transformers 5.x needs <2.0; datasets>=5.1 would otherwise upgrade it
 accelerate>=0.30      # required by the Hugging Face Trainer

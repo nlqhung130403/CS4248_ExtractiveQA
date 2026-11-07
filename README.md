@@ -156,8 +156,10 @@ We fine-tune a pre-trained ELECTRA-base encoder on the SQuAD v1.1 training set, 
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Train
-# TODO: python src/train.py ...
+# 2. Split the data and train (writes outputs/checkpoints/<run_name>/)
+python src/data.py
+python src/train.py --run_name final                       # ELECTRA paper recipe: LR 1e-4, LLRD 0.8
+python src/train.py --run_name baseline --preset baseline  # LR 3e-5, no LLRD
 
 # 3. Predict on the test set
 # TODO: python src/predict.py --data data/dev-v1.1.json --out outputs/predictions.json
