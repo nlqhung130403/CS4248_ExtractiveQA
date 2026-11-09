@@ -1,0 +1,37 @@
+<|im_start|>system
+Answer the question using one contiguous span copied exactly from the context. Return only that span, without explanations or additional text.<|im_end|>
+<|im_start|>user
+Context:
+In the wake of the United States' economic downturn and the legalization of gambling in adjacent and nearby states (including Delaware, Maryland, New York, and Pennsylvania), four casino closures took place in 2014: the Atlantic Club on January 13; the Showboat on August 31; the Revel, which was Atlantic City's second-newest casino, on September 2; and Trump Plaza, which originally opened in 1984, and was the poorest performing casino in the city, on September 16.
+
+Question:
+What was the name of the first casino to close in 2014?<|im_end|>
+<|im_start|>assistant
+Atlantic Club<|im_end|>
+<|im_start|>user
+Context:
+Epic poetry, notably the "acritic songs", flourished during Middle Ages. Two chronicles, one written by Leontios Machairas and the other by Georgios Voustronios, cover the entire Middle Ages until the end of Frankish rule (4th century–1489). Poèmes d'amour written in medieval Greek Cypriot date back from the 16th century. Some of them are actual translations of poems written by Petrarch, Bembo, Ariosto and G. Sannazzaro. Many Cypriot scholars fled Cyprus at troubled times such as Ioannis Kigalas (c. 1622–1687) who migrated from Cyprus to Italy in the 17th century, several of his works have survived in books of other scholars.
+
+Question:
+What was the time period of Frankish rule?<|im_end|>
+<|im_start|>assistant
+4th century–1489<|im_end|>
+<|im_start|>user
+Context:
+The "religious test" clause has been interpreted to cover both elected officials and appointed ones, career civil servants as well as political appointees. Religious beliefs or the lack of them have therefore not been permissible tests or qualifications with regard to federal employees since the ratification of the Constitution. Seven states, however, have language included in their Bill of Rights, Declaration of Rights, or in the body of their constitutions that require state office-holders to have particular religious beliefs, though some of these have been successfully challenged in court. These states are Texas, Massachusetts, Maryland, North Carolina, Pennsylvania, South Carolina, and Tennessee.
+
+Question:
+What do states violate the clause require state office-holders to possess?<|im_end|>
+<|im_start|>assistant
+particular religious beliefs<|im_end|>
+<|im_start|>user
+Context:
+To Kill a Mockingbird is a novel by Harper Lee published in 1960. It was immediately successful, winning the Pulitzer Prize, and has become a classic of modern American literature. The plot and characters are loosely based on the author's observations of her family and neighbors, as well as on an event that occurred near her hometown in 1936, when she was 10 years old.
+
+Question:
+When did To Kill a Mockingbird first get circulated?<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
