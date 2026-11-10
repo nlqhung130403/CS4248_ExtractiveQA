@@ -1,0 +1,13 @@
+<|im_start|>system
+Answer the question using one contiguous span copied exactly from the context. Return only that span, without explanations or additional text.<|im_end|>
+<|im_start|>user
+Context:
+To Kill a Mockingbird is a novel by Harper Lee published in 1960. It was immediately successful, winning the Pulitzer Prize, and has become a classic of modern American literature. The plot and characters are loosely based on the author's observations of her family and neighbors, as well as on an event that occurred near her hometown in 1936, when she was 10 years old.
+
+Question:
+When did To Kill a Mockingbird first get circulated?<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+

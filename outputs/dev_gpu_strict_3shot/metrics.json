@@ -1,0 +1,10 @@
+{
+  "exact": 67.81456953642385,
+  "f1": 80.79072121331261,
+  "total": 10570,
+  "non_extractive_rate": 12.052980132450331,
+  "empty_answer_rate": 0.0,
+  "elapsed_seconds": 5713.1115852,
+  "questions_per_second": 1.85013015103397,
+  "peak_gpu_memory_gb": 1.864088535308838
+}
