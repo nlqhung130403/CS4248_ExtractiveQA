@@ -1,0 +1,82 @@
+CS4248 - DRAFT ANNOTATIONS FOR 100 SQUAD DEV QUESTIONS
+
+FILES
+
+- annotations_100_draft.csv: Contains evaluator-compatible labels, evidence, explanations, reference answers, passages, review priority and confidence.
+- annotation_manifest.json: Records the dataset SHA-256, sampling seed, question IDs and category counts.
+
+SAMPLING
+
+100 questions were randomly sampled without replacement from the 10,570 questions using Python random.Random(42).sample.
+
+The original article, paragraph and question order was preserved. This is question-level random sampling, not topic-stratified or passage-disjoint sampling, so some passages may appear more than once. The sample was not adjusted to meet category quotas.
+
+REASONING TYPE RUBRIC
+
+These are project-specific labels describing the main reasoning step needed to recover an answer.
+
+- direct_lookup: Answer is explicitly stated through a definition, relation, list or date, with minimal paraphrasing.
+- synonymy: Requires recognising lexical or semantic paraphrasing, e.g. sent vs shipped.
+- syntactic_variation: Requires recognising structural changes, e.g. passive-to-active or modifier-to-predicate.
+- multi_sentence: Requires linking information across sentences to identify a relation or referent.
+- comparison: Requires interpreting an explicit quantitative comparison.
+- world_knowledge: Requires external factual knowledge beyond normal language understanding.
+
+When multiple labels apply, prioritise cross-sentence linking, then substantive comparison, followed by the most significant lexical or structural change.
+
+Some boundaries are subjective, so borderline cases should be discussed and labelled consistently. Malformed questions and optional cross-sentence links should receive extra attention.
+
+No syntactic-divergence analysis is included.
+
+ANSWER TYPE RUBRIC
+
+Use the first gold reference answer to determine the answer type, following the evaluator's convention.
+
+- person: Named person or list of named people.
+- location: Geographic place, area or route.
+- date: Calendar date, year, date range or historical period.
+- number: Count, amount, duration, percentage or quantity.
+- other_entity: Other proper names, organisations, religions, groups or technical identifiers.
+- noun_phrase: Common noun or noun phrase, including generic scientific terms.
+- verb_phrase: Verb or verb phrase without an explicit subject.
+- clause: Span containing a subject and predicate.
+- adjective_phrase: Descriptive adjective or coordinated adjectives.
+- prepositional_phrase: Phrase headed by a preposition.
+- other_phrase: Remaining answer fragments that do not fit the above categories.
+
+Other reference answers may have different boundaries or grammatical structures. Follow the first reference rather than silently changing the gold answer. These labels may also require human review.
+
+IMPORTANT EVALUATOR BEHAVIOUR
+
+The evaluator only reads id, answer_type and reasoning_type. It ignores review_status, confidence, evidence and other extra columns.
+
+Unreviewed annotations are NOT automatically excluded. Before reporting reviewed results, use a reviewed copy and remove unreviewed rows or clear their reasoning labels.
+
+Partial CSV samples are supported, so questions outside the 100 sampled examples remain unannotated for reasoning type.
+
+USAGE
+
+Run from the GitHub repository:
+
+python src/evaluation-qa.py --data /Users/ylchin/Downloads/dev-v1.1.json 
+  --predictions YOUR_PREDICTIONS.json 
+  --annotations /annotations/annotations_100_draft.csv 
+  --output outputs/evaluation_reviewed
+
+Predictions must still cover the entire evaluation dataset, even though annotations only cover 100 questions.
+
+- Overall EM/F1 scores use all questions.
+- Reasoning-type breakdowns use the annotated sample, with remaining questions grouped as unannotated.
+- Answer-type breakdowns still use automatic labels for unsampled questions.
+- To analyse manually reviewed answer types only, filter per_question.csv by reviewed question IDs or answer_type_source=manual.
+
+DRAFT CATEGORY COUNTS
+
+- direct_lookup: 52
+- synonymy: 24
+- multi_sentence: 14
+- syntactic_variation: 9
+- comparison: 1
+- world_knowledge: 0
+
+These counts are provisional and should not be treated as model performance results. Avoid strong conclusions from categories with very few examples, especially comparison, which currently has only one question.

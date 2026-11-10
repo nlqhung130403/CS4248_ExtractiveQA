@@ -1,4 +1,6 @@
 import json
+import csv
+from types import SimpleNamespace
 import subprocess
 import sys
 import tempfile
@@ -42,6 +44,43 @@ class EvaluationTests(unittest.TestCase):
                 path.write_text(json.dumps(bundle))
                 self.assertEqual(module.load_predictions(path)[0], expected)
 
+    def test_answer_types_and_manual_labels(self):
+        def qa(text):
+            return {"context": text, "answers": [{"text": text, "answer_start": 0}]}
+        self.assertEqual(module.classify_answer(qa("1,200")), ("number", "rule"))
+        self.assertEqual(module.classify_answer(qa("10 November 2026")), ("date", "rule"))
+        self.assertEqual(module.classify_answer(qa("May I leave")), ("unclassified", "rule"))
+        entity = SimpleNamespace(start_char=0, end_char=3, label_="PERSON")
+        self.assertEqual(module.classify_answer(qa("Ada"), [entity]), ("person", "spacy"))
+        labels = module.analysis_labels({"q": qa("Ada")}, {"q": {"answer_type": "person", "reasoning_type": "synonymy"}})
+        self.assertEqual(labels["q"]["answer_type_source"], "manual")
+        self.assertEqual(labels["q"]["reasoning_type"], "synonymy")
+
+    def test_boundary_flags(self):
+        context = "She moved to New York City yesterday."
+        qa = {"context": context, "answers": [{"text": "New York City", "answer_start": context.index("New York City")}]}
+        cases = {"New York City": "exact_span", "New York": "potential_missing_text",
+                 "to New York City": "potential_extra_text", "City yesterday": "potential_partial_overlap",
+                 "She": "disjoint", "London": "non_extractive", "": "empty"}
+        for prediction, expected in cases.items():
+            with self.subTest(prediction=prediction):
+                self.assertEqual(module.boundary_error(prediction, qa), expected)
+        qa["answers"].append({"text": "New York", "answer_start": context.index("New York")})
+        self.assertEqual(module.boundary_error("New York", qa), "exact_span")
+        qa["context"] = "York and New York"
+        qa["answers"] = [{"text": "New York", "answer_start": 9}]
+        self.assertEqual(module.boundary_error("York", qa), "potential_missing_text")
+
+    def test_annotation_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "labels.csv"
+            for text in ["id,answer_type,reasoning_type\nx,person,synonymy\n",
+                         "id,answer_type,reasoning_type\nq,person,\nq,person,\n",
+                         "id,answer_type\nq,person\n"]:
+                path.write_text(text)
+                with self.assertRaises(ValueError):
+                    module.load_annotations(path, {"q": {}})
+
     def test_validation(self):
         with self.assertRaises(ValueError):
             validate_predictions({"q1": "answer"}, {"q1": {}, "q2": {}})
@@ -82,6 +121,18 @@ class EvaluationTests(unittest.TestCase):
                 metrics = read_json(results / "demo" / f"metrics.{variant}.json")
                 for key in ["exact", "f1", "total"]:
                     self.assertEqual(metrics[key], actual[key])
+            annotations = directory / "annotations.csv"
+            annotations.write_text("id,answer_type,reasoning_type\nq1,location,synonymy\n")
+            template = results / "annotation_template.csv"
+            template.write_text("User edits must survive")
+            annotated = evaluate(data_path, [predictions_path], scorer, results, annotations)
+            self.assertEqual(annotated, summary)  # Labels must not change overall scores.
+            self.assertEqual(template.read_text(), "User edits must survive")
+            with (results / "breakdowns.csv").open() as handle:
+                groups = list(csv.DictReader(handle))
+            reasoning = [r for r in groups if r["dimension"] == "reasoning_type" and r["variant"] == "raw"]
+            self.assertEqual({r["group"]: int(r["total"]) for r in reasoning}, {"synonymy": 1, "unannotated": 3})
+            self.assertTrue(any(r["dimension"] == "mapped_boundary_error" for r in groups))
             # The prescribed v1.1 data has no unanswerable questions.
             dataset["version"] = "1.1"
             dataset["data"][0]["paragraphs"][0]["qas"].pop(2)

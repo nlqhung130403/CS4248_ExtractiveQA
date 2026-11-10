@@ -161,7 +161,116 @@ def write_csv(path, rows):
         writer.writerows(rows)
 
 
-def evaluate(data_path, prediction_paths, scorer_path, output_dir):
+def load_annotations(path, questions):
+    """Manual labels affect analysis only, never predictions or official scores."""
+    if path is None:
+        return {}
+    annotations = {}
+    with Path(path).open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if not reader.fieldnames or not {"id", "answer_type", "reasoning_type"}.issubset(reader.fieldnames):
+            raise ValueError("Annotation CSV needs id, answer_type and reasoning_type columns.")
+        for row in reader:
+            qid = row["id"].strip()
+            if qid not in questions or qid in annotations:
+                raise ValueError(f"Unknown or duplicate annotation ID: {qid}")
+            annotations[qid] = {key: (row.get(key) or "").strip()
+                                for key in ("answer_type", "reasoning_type")}
+    return annotations
+
+
+def classify_answer(qa, entities=()):
+    """Heuristic label of the first reference; uncertain cases stay unclassified."""
+    if not qa["answers"]:
+        return "no_answer", "reference"
+    answer = qa["answers"][0]
+    text = answer["text"].strip()
+    start = answer.get("answer_start", -1)
+    end = start + len(answer["text"])
+    labels = {"PERSON": "person", "GPE": "location", "LOC": "location",
+              "FAC": "location", "DATE": "date", "TIME": "time",
+              "CARDINAL": "number", "ORDINAL": "number", "QUANTITY": "number",
+              "PERCENT": "number", "MONEY": "number"}
+    for entity in entities:
+        if entity.start_char == start and entity.end_char == end:
+            return labels.get(entity.label_, "other_entity"), "spacy"
+    # Restrict dates to numeric date formats and month + day/year expressions.
+    # Bare years remain numbers without contextual entity tagging or manual labels.
+    months = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
+    if re.fullmatch(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}/\d{1,2}/\d{2,4}", text) or re.fullmatch(
+        rf"(?:{months} \d{{1,2}}(?:,? \d{{4}})?|\d{{1,2}} {months}(?: \d{{4}})?|{months} \d{{4}})", text, re.I
+    ):
+        return "date", "rule"
+    if re.fullmatch(r"[$£€]?[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:%|st|nd|rd|th)?", text, re.I):
+        return "number", "rule"
+    return "unclassified", "rule"
+
+
+def analysis_labels(questions, annotations, spacy_model=None):
+    entities_by_context = {}
+    if spacy_model:
+        # Optional: the user installs a spaCy English model separately.
+        import spacy
+        nlp = spacy.load(spacy_model)
+        if "ner" not in nlp.pipe_names:
+            raise ValueError("The selected spaCy model must include an NER component.")
+        contexts = list(dict.fromkeys(qa["context"] for qa in questions.values()))
+        for context, doc in zip(contexts, nlp.pipe(contexts)):
+            entities_by_context[context] = list(doc.ents)
+    result = {}
+    for qid, qa in questions.items():
+        label, source = classify_answer(qa, entities_by_context.get(qa["context"], ()))
+        manual = annotations.get(qid, {})
+        if manual.get("answer_type"):
+            label, source = manual["answer_type"], "manual"
+        result[qid] = {"answer_type": label, "answer_type_source": source,
+                       "reasoning_type": manual.get("reasoning_type") or "unannotated"}
+    return result
+
+
+def boundary_error(prediction, qa):
+    """Potential character-span boundary error, not a causal diagnosis.
+
+    Compare every literal prediction occurrence with all valid reference spans.
+    Exact reference text wins. Otherwise select the relation with greatest
+    character intersection-over-union; ties follow passage/reference order.
+    """
+    prediction = prediction.strip()
+    if not prediction:
+        return "empty"
+    context = qa["context"]
+    if prediction not in context:
+        return "non_extractive"
+    if not qa["answers"]:
+        return "no_gold_span"
+    if any(prediction == a["text"] for a in qa["answers"]):
+        return "exact_span"
+    references = []
+    for answer in qa["answers"]:
+        start = answer.get("answer_start", -1)
+        end = start + len(answer["text"])
+        if start >= 0 and end > start and context[start:end] == answer["text"]:
+            references.append((start, end))
+    if not references:
+        return "invalid_reference_offsets"
+    best_overlap, label = 0, "disjoint"
+    for match in re.finditer(r"(?=" + re.escape(prediction) + r")", context):
+        start, end = match.start(), match.start() + len(prediction)
+        for gold_start, gold_end in references:
+            overlap = max(0, min(end, gold_end) - max(start, gold_start))
+            ratio = overlap / (max(end, gold_end) - min(start, gold_start))
+            if ratio > best_overlap:
+                best_overlap = ratio
+                if start <= gold_start and end >= gold_end:
+                    label = "potential_extra_text"
+                elif start >= gold_start and end <= gold_end:
+                    label = "potential_missing_text"
+                else:
+                    label = "potential_partial_overlap"
+    return label
+
+
+def evaluate(data_path, prediction_paths, scorer_path, output_dir, annotations_path=None, spacy_model=None):
     data = read_json(data_path)
     questions = flatten_dataset(data)
     scorer = load_scorer(scorer_path)
@@ -173,8 +282,19 @@ def evaluate(data_path, prediction_paths, scorer_path, output_dir):
     inputs = [predictions for predictions, _ in loaded]
     for predictions in inputs:
         validate_predictions(predictions, questions)
+    annotations = load_annotations(annotations_path, questions)
+    labels = analysis_labels(questions, annotations, spacy_model)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    template = output_dir / "annotation_template.csv"
+    # Never overwrite a template that may already contain the user's annotations.
+    if not template.exists():
+        write_csv(template, [{"id": qid, "question": qa["question"],
+                             "context": qa["context"],
+                             "gold_answers": json.dumps([a["text"] for a in qa["answers"]]),
+                             "suggested_answer_type": labels[qid]["answer_type"],
+                             "answer_type": "", "reasoning_type": ""}
+                            for qid, qa in questions.items()])
     summary, all_groups = [], []
     for name, raw in zip(names, inputs):
         directory = output_dir / name
@@ -199,6 +319,9 @@ def evaluate(data_path, prediction_paths, scorer_path, output_dir):
                     "gold_answers": json.dumps(
                         [a["text"] for a in qa["answers"]], ensure_ascii=False
                     ),
+                    **labels[qid],
+                    "raw_boundary_error": boundary_error(raw[qid], qa),
+                    "mapped_boundary_error": boundary_error(span, qa),
                     "question_type": question_type(qa["question"]),
                     "answer_length": length_bucket(qa["answers"]),
                     "answerability": "answerable" if qa["answers"] else "unanswerable",
@@ -243,6 +366,9 @@ def evaluate(data_path, prediction_paths, scorer_path, output_dir):
                 }
             )
             for dimension in [
+                "answer_type",
+                "reasoning_type",
+                f"{variant}_boundary_error",
                 "question_type",
                 "answer_length",
                 "answerability",
@@ -265,6 +391,8 @@ def evaluate(data_path, prediction_paths, scorer_path, output_dir):
     write_csv(output_dir / "comparison.csv", summary)
     write_csv(output_dir / "breakdowns.csv", all_groups)
     files = [data_path, scorer_path, *prediction_paths]
+    if annotations_path is not None:
+        files.append(annotations_path)
     write_json(
         output_dir / "run_manifest.json",
         {
@@ -279,6 +407,11 @@ def evaluate(data_path, prediction_paths, scorer_path, output_dir):
             },
             "dataset_version": data.get("version", "unspecified"),
             "question_count": len(questions),
+            "answer_type_policy": "first reference; manual override > optional exact NER span > date/number rules > unclassified",
+            "spacy_model": spacy_model,
+            "reasoning_annotated_count": sum(row["reasoning_type"] != "unannotated" for row in labels.values()),
+            "boundary_policy": "literal spans; exact text first, then maximum character IoU across occurrences/references; potential errors only",
+            "syntactic_divergence": "not implemented",
         },
     )
     return summary
@@ -306,9 +439,12 @@ def main():
         type=Path,
         default=Path(__file__).resolve().parents[1] / "outputs/evaluation",
     )
+    parser.add_argument("--annotations", type=Path,
+                        help="Optional CSV with id, answer_type, reasoning_type (blank labels allowed)")
+    parser.add_argument("--spacy-model", help="Optional installed English spaCy NER model, e.g. en_core_web_sm")
     args = parser.parse_args()
     try:
-        rows = evaluate(args.data, args.predictions, args.scorer, args.output)
+        rows = evaluate(args.data, args.predictions, args.scorer, args.output, args.annotations, args.spacy_model)
     except (ValueError, KeyError, OSError, ImportError) as error:
         parser.exit(2, f"Evaluation failed: {error}\n")
     for row in rows:
