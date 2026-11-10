@@ -1,0 +1,23 @@
+{
+  "model": "Qwen/Qwen3.5-0.8B",
+  "revision": "main",
+  "data": "data\\dev-v1.1.json",
+  "train_data": "D:\\NUS\\Y4S1\\CS4248\\Project\\CS4248_ExtractiveQA\\data\\splits\\train_split.json",
+  "output_dir": "outputs\\dev_gpu_strict_0shot",
+  "prompt": "strict",
+  "shots": 0,
+  "device": "cuda",
+  "batch_size": 1,
+  "max_examples": null,
+  "max_input_tokens": 4096,
+  "max_new_tokens": 64,
+  "seed": 42,
+  "preview": false,
+  "demo_ids": [],
+  "torch_version": "2.7.1+cu118",
+  "transformers_version": "5.22.2",
+  "resolved_device": "cuda",
+  "dtype": "torch.bfloat16",
+  "model_commit": null,
+  "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU"
+}
