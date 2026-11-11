@@ -92,8 +92,10 @@ def best_span_in_window(start, end, offsets, n_best=N_BEST, max_answer_length=MA
     k = min(n_best, int(passage.sum()))
     if k == 0:
         return None
-    starts = np.argsort(start)[::-1][:k]
-    ends = np.argsort(end)[::-1][:k]
+    # Stable sort: equal scores (common with fp16 logits) keep token order, so ties go to the earlier
+    # token and the answer does not depend on the machine's numpy version.
+    starts = np.argsort(-start, kind="stable")[:k]
+    ends = np.argsort(-end, kind="stable")[:k]
     scores = start[starts][:, None] + end[ends][None, :]
     length = ends[None, :] - starts[:, None] + 1
     scores = np.where((length >= 1) & (length <= max_answer_length), scores, -np.inf)

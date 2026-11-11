@@ -124,10 +124,12 @@ The paper also mentions that a neural model (Match-LSTM with Answer Pointer; Wan
 
 ### Our results
 
-| Model                | EM  | F1  |
-| -------------------- | --- | --- |
-| _TODO: baseline_     |     |     |
-| _TODO: final system_ |     |     |
+Scores on the test set (`dev-v1.1.json`, 10,570 questions), official evaluation script.
+
+| Model                                                             | EM    | F1    |
+| ----------------------------------------------------------------- | ----- | ----- |
+| _TODO: baseline_                                                  |       |       |
+| ELECTRA-base, paper recipe (LR 1e-4, LLRD 0.8, 2 epochs; `final`) | 85.87 | 92.24 |
 
 ## 6. Approach
 
