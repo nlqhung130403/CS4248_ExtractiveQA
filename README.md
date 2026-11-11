@@ -161,11 +161,17 @@ python src/data.py
 python src/train.py --run_name final                       # ELECTRA paper recipe: LR 1e-4, LLRD 0.8
 python src/train.py --run_name baseline --preset baseline  # LR 3e-5, no LLRD
 
-# 3. Predict on the test set
-# TODO: python src/predict.py --data data/dev-v1.1.json --out outputs/predictions.json
+# 3. Predict (on a GPU). Writes outputs/predictions/<run_name>/<data>_logits.npz and
+#    <data>_predictions.json, and prints EM/F1. Use the validation split for all decisions.
+python src/predict.py --model outputs/checkpoints/final --data data/splits/val_split.json
+python src/predict.py --model outputs/checkpoints/final --data data/dev-v1.1.json   # final numbers only
 
-# 4. Evaluate
-python evaluate-v2.0.py data/dev-v1.1.json outputs/predictions.json
+# Optional: try post-processing settings on the saved scores (no model or GPU needed)
+python src/postprocess.py outputs/predictions/final/val_split_logits.npz --data data/splits/val_split.json \
+    --max_answer_length 15 30 50 --n_best 10 20 --score logits softmax
+
+# 4. Evaluate with the official script
+python evaluate-v2.0.py data/dev-v1.1.json outputs/predictions/final/dev-v1.1_predictions.json
 ```
 
 ## 9. Error analysis (planned)
