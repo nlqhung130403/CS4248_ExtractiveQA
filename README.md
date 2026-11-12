@@ -2,7 +2,7 @@
 
 **CS4248 Introduction to Large Language Models — AY 2026/27 Semester 1, Final Project**
 
-This project builds an **extractive question answering (QA) system**: given an English passage and a question about it, the system returns the answer as a contiguous segment of text (a _span_) copied directly from the passage. The system is trained and evaluated on the **Stanford Question Answering Dataset (SQuAD) v1.1** (Rajpurkar et al., 2016).
+This project builds an extractive question answering (QA) system: given an English passage and a question about it, the task is to return the answer as a contiguous segment of text (a _span_) copied directly from the passage. We compare encoder-based models, generative prompting and LoRA adaptation on the **Stanford Question Answering Dataset (SQuAD) v1.1** (Rajpurkar et al., 2016).
 
 ---
 
@@ -42,7 +42,7 @@ The goal is to **implement a QA system that, for each (context, question) pair, 
 1. **Exact Match (EM)**
 2. **Macro-averaged F1**
 
-As reference points, the original paper reports a gap between a feature-based model and human performance, which later neural models have steadily narrowed. This project aims to build a modern system that substantially closes that gap, and to analyse where it still falls short.
+We compare supervised encoders, generative prompting and LoRA fine-tuning under a shared evaluation. We also examine whether mapping generated answers to passage spans improves scores and how performance varies across question and answer categories.
 
 ## 3. Data
 
@@ -53,7 +53,7 @@ Both files are provided in the course's Canvas Project folder.
 | Train | `train-v1.1.json` | Model training (and any held-out validation split we carve from it) |
 | Test  | `dev-v1.1.json`   | Final evaluation only                                               |
 
-**About SQuAD.** SQuAD v1.0 contains 107,785 question–answer pairs over 536 Wikipedia articles, drawn by random sampling from the top 10,000 English Wikipedia articles by PageRank. Articles were randomly partitioned 80% / 10% / 10% into train / dev / test, so **no article appears in more than one split**. Each question in the dev set has **at least three reference answers** (the original plus at least two additional crowdsourced answers), which makes evaluation more robust to boundary disagreements.
+**About SQuAD.** SQuAD v1.0 contains 107,785 question–answer pairs over 536 Wikipedia articles, drawn by random sampling from the top 10,000 English Wikipedia articles by PageRank. Articles were randomly partitioned 80% / 10% / 10% into train / dev / test, so **no article appears in more than one split**. Development questions may have multiple reference answers, making evaluation more robust to boundary disagreements.
 
 **File format.** Each JSON file has the structure:
 
@@ -80,33 +80,33 @@ Both files are provided in the course's Canvas Project folder.
 }
 ```
 
-`answer_start` is a **character offset** into `context`. Training examples have one answer; dev examples have several.
+`answer_start` is a **character offset** into `context`. Training examples have one answer; development examples may have multiple reference answers.
 
 > ⚠️ Because `dev-v1.1.json` is our test set, it must not be used for model selection or hyperparameter tuning. Use a held-out portion of the training data for that.
 
 ## 4. Evaluation
 
-Evaluation uses the official script **`evaluate-v2.0.py`**, available from the CodaLab link in the project brief. SQuAD v1.1 contains no unanswerable questions, so the v2.0 script scores it with the same EM and F1 definitions.
+We use the provided official **`evaluate-v2.0.py`** scorer:
 
-Both metrics normalise text first: lowercase, strip punctuation, remove the articles _a / an / the_, and collapse whitespace.
+- **Exact Match (EM):** percentage of predictions matching any reference after normalization.
+- **Token F1:** best token-overlap F1 across references for each question, averaged over all questions.
 
-- **Exact Match (EM):** the percentage of predictions that exactly match _any one_ of the reference answers.
-- **F1 (macro-averaged):** for each question, treat the prediction and each reference as bags of tokens, compute token-level F1, take the **maximum** over references, then average over all questions.
+Normalization lowercases text, removes punctuation and articles, and collapses whitespace.
 
-### Running the scorer
+### Shared evaluator
 
-Predictions must be a JSON object mapping each question `id` to the predicted answer string:
+`src/evaluation-qa.py` accepts plain prediction maps (`{"question_id": "answer"}`) or bundles containing `predictions`. If present, `raw_predictions` is preferred. Each file must cover every dataset question with no extra IDs; filename stems must be unique.
 
-```json
-{
-  "56be4db0acb8001400a502ec": "Denver Broncos",
-  "56be4db0acb8001400a502ed": "Carolina Panthers"
-}
-```
+The evaluator scores both supplied and span-mapped answers. Mapping cleans recognised prefixes and quotes, allows case/whitespace differences, and returns an empty answer when no passage match is found. It uses no gold answers and can lower scores by discarding partially correct outputs. **Raw** means before shared mapping, not necessarily before model-specific cleaning.
 
-```bash
-python evaluate-v2.0.py data/dev-v1.1.json outputs/predictions.json
-```
+Main outputs:
+
+- `comparison.csv`: overall raw/mapped scores and mapping diagnostics.
+- `breakdowns.csv`: grouped scores and question counts.
+- `<model>/per_question.csv`: predictions, references and individual scores.
+- Prediction/metric JSON files, `annotation_template.csv` and `run_manifest.json` for reuse and reproducibility.
+
+Overall scores are percentages; per-question scores range from 0 to 1. See Section 8 for evaluation commands and Section 9 for error analysis.
 
 ## 5. Reference results
 
@@ -120,37 +120,104 @@ Reported in the SQuAD paper (Table 5; numbers are on SQuAD v1.0, which the autho
 | Logistic regression (feature-based) | 40.0     | 51.0     | 40.4     | 51.0     |
 | **Human**                           | **80.3** | **90.5** | **77.0** | **86.8** |
 
-The paper also mentions that a neural model (Match-LSTM with Answer Pointer; Wang and Jiang, 2016) had already reached 70.3% F1 on v1.1. Since our test set is the official dev set, the **human dev scores (80.3 EM / 90.5 F1)** are the most directly comparable ceiling.
+The paper also mentions that a neural model (Match-LSTM with Answer Pointer; Wang and Jiang, 2016) had already reached 70.3% F1 on v1.1. These historical results provide context, not a strict performance ceiling or a directly controlled comparison with our SQuAD v1.1 runs.
 
 ### Our results
 
-Scores on the test set (`dev-v1.1.json`, 10,570 questions), official evaluation script.
+Scores on `dev-v1.1.json` (10,570 questions) before shared span mapping, using the official scorer. Supplied predictions may already include model-specific cleaning.
 
-| Model                                                             | EM    | F1    |
-| ----------------------------------------------------------------- | ----- | ----- |
-| _TODO: baseline_                                                  |       |       |
-| ELECTRA-base, paper recipe (LR 1e-4, LLRD 0.8, 2 epochs; `final`) | 85.87 | 92.24 |
+| Model                 | Setting                   |        EM |        F1 |
+| --------------------- | ------------------------- | --------: | --------: |
+| BERT-base-uncased     | Fine-tuned                |     78.27 |     86.19 |
+| BERT-base-cased       | Fine-tuned                |     79.41 |     87.08 |
+| DeBERTa-v3-base       | Fine-tuned                |     85.27 |     91.71 |
+| ELECTRA-base          | Fine-tuned                | **85.87** |     92.24 |
+| Qwen3.5-0.8B          | Zero-shot, 32-token setup |     61.24 |     77.30 |
+| Qwen3.5-0.8B          | LoRA                      |     85.68 | **92.32** |
+| Gemma 2 2B base       | Zero-shot                 |     41.84 |     59.32 |
+| Gemma 2 2B base       | Two-shot                  |     68.19 |     79.37 |
+| Gemma 2 2B Instruct   | Zero-shot                 |     71.33 |     85.89 |
+| Llama 3.2 1B base     | Zero-shot                 |     38.58 |     52.32 |
+| Llama 3.2 1B base     | Two-shot                  |     53.60 |     65.16 |
+| Llama 3.2 1B Instruct | Zero-shot                 |     59.64 |     71.38 |
+
+ELECTRA achieves the highest EM, while Qwen+LoRA achieves the highest F1. Their differences are small: 0.19 EM points in ELECTRA's favour and 0.08 F1 points in Qwen+LoRA's favour. No statistical significance tests are reported.
+
+### Separate Qwen prompting experiment
+
+This experiment uses different prompting, token budgets and post-processing from the Qwen zero-shot configuration above. Within this experiment, the zero-shot and three-shot runs share the same budgets. Three-shot prompting was selected on held-out validation data.
+
+| Setting    |    EM |    F1 | Non-extractive rate (%) |
+| ---------- | ----: | ----: | ----------------------: |
+| Zero-shot  | 61.70 | 76.52 |                   22.40 |
+| Three-shot | 67.81 | 80.79 |                   12.05 |
+
+Only one fixed demonstration set was evaluated. Differences between the two separate Qwen zero-shot setups should not be attributed to prompt wording alone.
 
 ## 6. Approach
 
-We fine-tune a pre-trained ELECTRA-base encoder on the SQuAD v1.1 training set, starting from the raw pre-trained weights (no prior QA fine-tuning).
+### Encoder models
 
-**Backbone: ELECTRA-base**
+We evaluate BERT, DeBERTa and ELECTRA models with a question-answering head that predicts start and end positions. Post-processing selects a valid span and copies it from the original passage.
+
+The repository's training pipeline fine-tunes pretrained ELECTRA-base weights without prior QA fine-tuning. The final recipe uses a learning rate of `1e-4`, layer-wise learning-rate decay of `0.8`, and two epochs. Encoder training settings differ across runs.
+
+### Generative prompting
+
+Compact generative models receive an extraction instruction, the passage and the question, optionally preceded by fixed training demonstrations. Base and instruction-tuned Gemma/Llama variants are compared. A separate Qwen experiment evaluates zero-, one- and three-shot prompting on validation data before final evaluation of selected settings.
+
+### LoRA adaptation
+
+Qwen3.5-0.8B is adapted using LoRA with supervised question-answer examples. The model generates answers token by token while only its adapter parameters are updated. The project also uses a logit lens to inspect reference first-token information across intermediate layers.
 
 ## 7. Repository structure
 
-```
+```text
 .
 ├── README.md
-├── data/
-│   ├── train-v1.1.json
-│   └── dev-v1.1.json
-├── src/                 # TODO: training, inference and preprocessing code
-├── outputs/
-│   └── predictions.json
+├── requirements.txt
+├── .gitignore
+├── implementation_plan.md
 ├── evaluate-v2.0.py
-└── requirements.txt
+├── src/
+│   ├── config.py
+│   ├── data.py
+│   ├── preprocess.py
+│   ├── train.py
+│   ├── predict.py
+│   ├── postprocess.py
+│   ├── subset_table.py
+│   ├── generative_inference.py
+│   ├── evaluation-qa.py
+│   ├── annotations/
+│   │   ├── annotations_100_draft.csv
+│   │   ├── annotation_manifest.json
+│   │   └── annotation_guide.txt
+│   └── llm_training_peft/
+│       ├── training.py
+│       ├── evaluation.py
+│       └── logit_lens_analysis.py
+├── outputs/
+│   ├── ELECTRA_log.txt
+│   ├── comparison.csv
+│   ├── breakdowns.csv
+│   ├── annotation_template.csv
+│   ├── predictions/
+│   │   └── final_kaggle/
+│   │       ├── val_split_predictions.json
+│   │       └── dev-v1.1_predictions.json
+│   ├── dev_gpu_strict_0shot/
+│   ├── dev_gpu_strict_3shot/
+│   ├── val_gpu_strict_0shot/
+│   ├── val_gpu_strict_1shot/
+│   └── val_gpu_strict_3shot/
+└── tests/
+    └── test_evaluation.py
 ```
+
+Each `*_gpu_strict_*` directory contains `config.json`, `predictions.json`, `metrics.json`, `generations.jsonl` and `prompt_preview.txt`.
+
+Dataset files and model checkpoints are not included in this listing. Place the Canvas files in `data/` to use the commands below, or adjust the paths to their actual locations.
 
 ## 8. Usage
 
@@ -172,65 +239,56 @@ python src/predict.py --model outputs/checkpoints/final --data data/dev-v1.1.jso
 python src/postprocess.py outputs/predictions/final/val_split_logits.npz --data data/splits/val_split.json \
     --max_answer_length 15 30 50 --n_best 10 20 --score logits softmax
 
-# 4. Evaluate with the official script
-python evaluate-v2.0.py data/dev-v1.1.json outputs/predictions/final/dev-v1.1_predictions.json
+# 4. Evaluate the new encoder predictions
+python src/evaluation-qa.py --data data/dev-v1.1.json \
+  --predictions outputs/predictions/final/dev-v1.1_predictions.json \
+  --output outputs/evaluation
 ```
 
-## 9. Error analysis (planned)
+### Evaluate existing predictions with annotations
 
-Following the analysis in the SQuAD paper, we plan to break down performance by:
+The following uses the included ELECTRA dev predictions and the repository annotation CSV:
 
-- **Answer type** (date, number, person, location, other entity, noun phrase, verb phrase, clause, …)
-- **Reasoning type** (synonymy, world knowledge, syntactic variation, multi-sentence reasoning)
-- **Syntactic divergence** between the question and the answer sentence
-- **Span boundary errors** (e.g., including or omitting non-essential modifiers)
+```bash
+python src/evaluation-qa.py \
+  --data data/dev-v1.1.json \
+  --predictions outputs/predictions/final_kaggle/dev-v1.1_predictions.json \
+  --annotations src/annotations/annotations_100_draft.csv \
+  --output outputs/evaluation_annotated
+```
+
+For a multi-model comparison, supply additional files after `--predictions`. Each file must cover the same questions and have a distinct filename stem.
+
+### Optional spaCy answer-type tagging
+
+If spaCy and an English NER model are installed in the active environment, add `--spacy-model en_core_web_sm` to the evaluation command. This changes answer-type labels and breakdowns, not overall EM/F1. The evaluator does not download a model automatically.
+
+For generative prompting and LoRA training, refer to `src/generative_inference.py` and `src/llm_training_peft/`. Check their input, model and output paths before running.
+
+### Integration tests
+
+No model inference is required:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+## 9. Error analysis
+
+The evaluator reports EM/F1 breakdowns by **question type, answer length, answer type and reasoning type**, alongside potential span-boundary errors, non-extractive outputs and mapping failures.
+
+- **Answer types** use manual labels where available, otherwise optional spaCy tagging and date/number rules. Unclassified cases remain `unclassified`.
+- **Reasoning types** use 100 randomly sampled development questions (seed 42), with AI-assisted labels reviewed by the team. Questions outside the labelled sample are `unannotated`.
+- **Boundary flags** identify potential extra text, missing text or partial overlap and require manual interpretation.
+
+Pass labels using `--annotations src/annotations/annotations_100_draft.csv`. The evaluator reads `id`, `answer_type` and `reasoning_type`; it does not filter by review status. Overall scores still cover the full dataset.
+
+Results are saved in `breakdowns.csv` and `<model>/per_question.csv`. See [the annotation guide](src/annotations/annotation_guide.txt) for the rubric and review process.
+
+Small reasoning groups support exploratory conclusions only. Syntactic divergence is not implemented.
 
 ## References
 
 - Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev, and Percy Liang. 2016. [SQuAD: 100,000+ Questions for Machine Comprehension of Text](https://aclanthology.org/D16-1264.pdf). In _Proceedings of EMNLP 2016_, pages 2383–2392.
 - Shuohang Wang and Jing Jiang. 2016. Machine Comprehension Using Match-LSTM and Answer Pointer. _CoRR_, abs/1608.07905.
-- SQuAD website: https://stanford-qa.com
-
-## Shared evaluation and span mapping
-
-Run the shared evaluator on the same dataset for all models:
-
-```bash
-python src/evaluation-qa.py --data data/dev-v1.1.json \
-  --predictions outputs/predictions.json runs/qwen-squad-lora/eval_lora.json \
-  --output outputs/evaluation
-```
-
-Replace the prediction paths with your actual files. Each filename is used as the model name, so filenames must be unique.
-
-The script uses the existing `evaluate-v2.0.py` without changing its scoring logic. It only requires NumPy and does not need model weights or a GPU.
-
-**Supported inputs:**
-
-- Plain JSON maps: `{"question_id": "answer"}`.
-- LLM bundles: `{"metrics": {...}, "predictions": {...}}`.
-- Newer LLM bundles also include `raw_predictions`, which are used for raw scoring to preserve the original generated text.
-
-Older bundles only contain cleaned predictions, so their original generations cannot be recovered. The `run_manifest.json` records which field was used. Do not describe cleaned predictions as untouched generations.
-
-**Evaluation and outputs:**
-
-The evaluator checks question IDs, calculates raw scores using the official scorer, and separately scores answers mapped back to passage spans. Mapping handles trimmed answers, recognised answer prefixes and quotation marks, with case and whitespace differences allowed. Unmatched answers become empty strings and are counted as mapping failures. It does not recover arbitrary explanations or thinking text.
-
-The main outputs are:
-
-- `comparison.csv`: Overall raw/mapped EM and F1, non-extractive output rates and mapping failures.
-- `breakdowns.csv`: Scores by question type, answer length, answerability and mapping method.
-- `<model>/per_question.csv`: Individual predictions and scores for error analysis.
-- `<model>/predictions.*.json` and `metrics.*.json`: Raw and mapped predictions and metrics.
-- `run_manifest.json`: Input/scorer hashes, source fields and mapping policy.
-
-Overall scores are percentages; per-question scores range from 0 to 1. Non-extractive output refers to answers that do not appear as case-sensitive substrings in the passage.
-
-Choose mapping rules using held-out training data and keep the dev set for final evaluation.
-
-**Run the integration tests** (no model inference required):
-
-```bash
-python -m unittest discover -s tests -v
-```
+- [SQuAD website](https://stanford-qa.com)
